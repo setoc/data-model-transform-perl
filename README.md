@@ -5,8 +5,9 @@ Describe a data model schema with XML and how to transform that data to other da
 
 Multiple users can work in parallel, creating changes to the data model, and all changes can be merged into a single data model.
 
-# perl dependencies
-DBIx-Lite
-Data-UUID
-Log-Dispatch
-Log-Log4perl
+## perl dependencies
+(these have dependencies of their own)
+- DBIx-Lite
+- Data-UUID
+- Log-Dispatch
+- Log-Log4perl
