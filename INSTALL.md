@@ -1,6 +1,7 @@
 # Install data-model-transform
 ```
 git clone https://github.com/setoc/data-model-transform-perl.git model.perl
+cd model.perl
 ```
 modify model_schema.xml to specify the data table schema
 

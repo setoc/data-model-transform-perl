@@ -666,6 +666,38 @@ sub create_dataset {
 sub load_dataset {
     # select version_id from dataset where dataset_id='x' and table_name='x'
     # insert into user.table_name (select * from table_name where version_id = version_id)
+    my $self = shift;
+    unless (ref $self) {
+        $logger->error("should call with an object, not a class");
+        return undef;
+    }
+    my $user = shift;
+    my $ds_id = shift;
+    my $sch = "u$user";
+    my $sql = "";
+    foreach my $table_name (keys $_schema{tables}){
+        if($_schema{tables}{$table_name}{type} eq 'data'){
+            $sql = "insert into $sch.$table_name select * from $table_name where version_id in (select version_id from dataset where dataset_id=$ds_id and table_name like '$table_name')";
+            my $rc = $_dbix->dbh->do($sql);
+        }
+    }
+}
+
+sub reset_database {
+    my $self = shift;
+    unless (ref $self) {
+        $logger->error("should call with an object, not a class");
+        return undef;
+    }
+    my $user = shift;
+    my $sch = "u$user";
+    my $sql = "";
+    foreach my $table_name (keys $_schema{tables}){
+        if($_schema{tables}{$table_name}{type} eq 'data'){
+            $sql = "delete from $sch.$table_name";
+            my $rc = $_dbix->dbh->do($sql);
+        }
+    }
 }
 
 # not sure if using a global %_schema and %_state here where cause problems in the future

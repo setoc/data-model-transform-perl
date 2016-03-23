@@ -30,6 +30,8 @@ $mdl->attach_userdb(1);
 
 #$mdl->txn(\&create_dataset);
 
+$mdl->txn(\&load_dataset);
+
 #print Dumper($dbix->schema);
 
 my $end_run = time();
@@ -39,6 +41,10 @@ print "Job took $run_time seconds\n";
 
 sub create_dataset {
     $mdl->create_dataset(1,"test dataset");
+}
+
+sub load_dataset {
+    $mdl->load_dataset(1,1);
 }
 
 sub load_data {
