@@ -10,13 +10,12 @@ use XML::Parser;
 use Data::Dumper;
 use DBI;
 use DBIx::Lite;
-use Data::UUID;
+use UUID::Tiny ':std';
 
 my $logger = get_logger("Model");
 my %_state; # for parsing xml
 my %_schema; # for storing parsed xml
 my $_dbix;
-my $ug = Data::UUID->new;
 
 sub new {
     my $class = shift;
@@ -82,6 +81,20 @@ sub load_schema {
     return %_schema;
 }
 
+sub get_column_names {
+    my $self = shift;
+    unless (ref $self) {
+        $logger->error("should call with an object, not a class");
+        return undef;
+    }
+    my $table_name = shift;
+    my @columns;
+    foreach my $c (keys %{$_schema{tables}{$table_name}{columns}}){
+        push @columns,$c;
+    }
+    return \@columns;
+}
+
 sub get_associations {
     my $self = shift;
     unless (ref $self) {
@@ -91,8 +104,8 @@ sub get_associations {
     my $data = shift;
     # loop through tables building hash of foreign-table = ['table.column.relationship',...]
     # this data-structure allows finding all the columns that reference another table's column
-    foreach my $table (keys $_schema{tables}){
-        foreach my $column (keys $_schema{tables}{$table}{columns}){
+    foreach my $table (keys %{$_schema{tables}}){
+        foreach my $column (keys %{$_schema{tables}{$table}{columns}}){
             next if $column eq 'version_id';
             if (defined $_schema{tables}{$table}{columns}{$column}{foreign_key}){
                 my $ft = $_schema{tables}{$table}{columns}{$column}{foreign_table};
@@ -153,12 +166,12 @@ sub create_database {
         return undef;
     }
     $logger->info("connected to database $file_name");
-    foreach my $table_name (keys $_schema{'tables'}){
+    foreach my $table_name (keys %{$_schema{'tables'}}){
         if($_schema{'tables'}{$table_name}{'type'} eq 'meta' and lc $dbtype eq 'user'){
             next;
         }
         my $sql = "CREATE TABLE $table_name (";
-        foreach my $column_name (keys $_schema{'tables'}{$table_name}{'columns'}){
+        foreach my $column_name (keys %{$_schema{'tables'}{$table_name}{'columns'}}){
             $sql .= $column_name;
             $sql .= " " . $_schema{'tables'}{$table_name}{'columns'}{$column_name}{'data_type'}
                 if defined $_schema{'tables'}{$table_name}{'columns'}{$column_name}{'data_type'};
@@ -207,8 +220,8 @@ sub init_dbix {
     
     #$_dbix->schema->table('SUBSTN')->pk('MRID');
     #$_dbix->schema->one_to_many('SUBSTN.MRID'=>'DEVTYP.SUBSTN_MRID','substn');
-    foreach my $table_name (keys $_schema{'tables'}){
-        foreach my $column_name (keys $_schema{'tables'}{$table_name}{'columns'}){
+    foreach my $table_name (keys %{$_schema{'tables'}}){
+        foreach my $column_name (keys %{$_schema{'tables'}{$table_name}{'columns'}}){
             # create primary key mapping
             $_dbix->schema->table($table_name)->pk($column_name)
                 if defined $_schema{'tables'}{$table_name}{'columns'}{$column_name}{'primary_key'};
@@ -252,9 +265,9 @@ sub attach_userdb {
     my $sql = "ATTACH DATABASE '$file_name' AS $sch";
     my $sth = $_dbix->dbh->prepare($sql);
     my $rc = $sth->execute();
-    foreach my $table_name (keys $_schema{'tables'}){
+    foreach my $table_name (keys %{$_schema{'tables'}}){
         next if($_schema{'tables'}{$table_name}{'type'} eq 'meta' );
-        foreach my $column_name (keys $_schema{'tables'}{$table_name}{'columns'}){
+        foreach my $column_name (keys %{$_schema{'tables'}{$table_name}{'columns'}}){
             # create primary key mapping
             $_dbix->schema->table("$sch.$table_name")->pk($column_name)
                 if defined $_schema{'tables'}{$table_name}{'columns'}{$column_name}{'primary_key'};
@@ -325,7 +338,7 @@ sub get_changeset_list {
     my @list;
     foreach my $item (@changeset_rs){
         my %cs;
-        foreach my $column (keys $item->{data}){
+        foreach my $column (keys %{$item->{data}}){
             $cs{$column} = $item->{data}->{$column};
         }
         push @list,\%cs;
@@ -377,7 +390,7 @@ sub insert {
         return undef;
     }
     my $user_table = "u$user.$table";
-    $data->{version_id} = $ug->create_str(); # this is a new record, so it gets a new version id
+    $data->{version_id} = create_uuid_as_string(UUID_RANDOM); # this is a new record, so it gets a new version id
     $_dbix->table($user_table)->insert($data);
     my $tx_id = $self->_get_max('change','transaction_id', {id_changeset=>$changeset}) + 1;
     my $change_id = $self->_get_max('change','id',{id_changeset=>$changeset}) + 1;
@@ -397,9 +410,12 @@ sub select {
         $logger->error("should call with an object, not a class");
         return undef;
     }
-    my $user = shift;
-    my $table = shift;
-    my $data = shift;
+    my $params = shift;
+    my %params = %{$params};
+    my $user = $params{user};
+    my $table = $params{table};
+    my $filter_hash = $params{filter};
+    my $columns = $params{columns};
     if(not defined $user){
         $logger->error("user must be specified");
         return undef;
@@ -408,14 +424,27 @@ sub select {
         $logger->error("table must be specified");
         return undef;
     }
-    #$self->attach_userdb($user);
-    my $user_table = "u$user.$table";
-    my $item = $_dbix->table($user_table)->find($data);
-    my %result;
-    foreach my $c (keys $item->{data}){
-        $result{$c} = $item->{data}->{$c};
+    if(not defined $columns){
+        $columns = $self->get_column_names($table);
     }
-    return \%result;
+    my $user_table = "u$user.$table";
+    
+    if(defined $filter_hash){
+        my $item;
+        $item = $_dbix->table($user_table)->select(@{$columns})->find($filter_hash);
+        my %result;
+        foreach my $c (keys %{$item->{data}}){
+            $result{$c} = $item->{data}->{$c};
+        }
+        return \%result;
+    }else{
+        my @items = $_dbix->table($user_table)->select(@{$columns})->all;
+        my @results;
+        foreach my $item (@items){
+            push @results,$item->hashref;
+        }
+        return \@results;
+    }
 }
 
 sub update {
@@ -449,7 +478,7 @@ sub update {
         return undef;
     }
     my $found_difference = 0;
-    foreach my $column (keys $data){
+    foreach my $column (keys %{$data}){
         if($data->{$column} ne $old_data->$column){
             #print "$column is different\n";
             $found_difference = 1;
@@ -461,7 +490,7 @@ sub update {
         }
     }
     if($found_difference){
-        my $vid = $ug->create_str(); # this is an updated record, so it gets a new version id
+        my $vid = create_uuid_as_string(UUID_RANDOM); # this is an updated record, so it gets a new version id
         $_dbix->table('change')->insert({id=>$change_id,id_changeset=>$changeset,transaction_id=>$tx_id,action=>'U',
                                          table_name=>$table,record_id=>$data->{record_id},column_name=>'version_id',
                                          new_value=>$vid, old_value=>$old_data->version_id});
@@ -543,7 +572,7 @@ sub _delete_recurse {
             }
         }
     }
-    foreach my $column (keys $old_data->{data}){
+    foreach my $column (keys %{$old_data->{data}}){
         # don't need to track changes for record_id because it is included with each entry
         if($column ne 'record_id'){
             $_dbix->table('change')->insert({id=>$change_id,id_changeset=>$changeset,transaction_id=>$tx_id,action=>'D',
@@ -651,9 +680,11 @@ sub create_dataset {
     $_dbix->table('dataset_info')->insert({dataset_id=>$ds_id,description=>$description,date_created=>$now,created_by=>$user});
     my $sch = "u$user";
     my $sql = "";
-    foreach my $table_name (keys $_schema{tables}){
+    foreach my $table_name (keys %{$_schema{tables}}){
         if($_schema{tables}{$table_name}{type} eq 'data'){
-            $sql = "insert into $table_name select * from $sch.$table_name as u where u.version_id not in (select m.version_id from $table_name as m)";
+            my $cols = $self->get_column_names($table_name);
+            my $cols_str = join ',',@{$cols};
+            $sql = "insert into $table_name ($cols_str) select $cols_str from $sch.$table_name where version_id not in (select version_id from $table_name)";
             my $rc = $_dbix->dbh->do($sql);
             $sql = "insert into dataset (version_id,record_id,table_name,dataset_id) select version_id,record_id,'$table_name','$ds_id' from $sch.$table_name";
             $rc = $_dbix->dbh->do($sql);
@@ -675,10 +706,13 @@ sub load_dataset {
     my $ds_id = shift;
     my $sch = "u$user";
     my $sql = "";
-    foreach my $table_name (keys $_schema{tables}){
+    foreach my $table_name (keys %{$_schema{tables}}){
         if($_schema{tables}{$table_name}{type} eq 'data'){
-            $sql = "insert into $sch.$table_name select * from $table_name where version_id in (select version_id from dataset where dataset_id=$ds_id and table_name like '$table_name')";
+            my $cols = $self->get_column_names($table_name);
+            my $cols_str = join ',',@{$cols};
+            $sql = "insert into $sch.$table_name ($cols_str) select $cols_str from $table_name where version_id in (select version_id from dataset where dataset_id=$ds_id and table_name like '$table_name')";
             my $rc = $_dbix->dbh->do($sql);
+            print "\n$sql\n";
         }
     }
 }
@@ -692,7 +726,7 @@ sub reset_database {
     my $user = shift;
     my $sch = "u$user";
     my $sql = "";
-    foreach my $table_name (keys $_schema{tables}){
+    foreach my $table_name (keys %{$_schema{tables}}){
         if($_schema{tables}{$table_name}{type} eq 'data'){
             $sql = "delete from $sch.$table_name";
             my $rc = $_dbix->dbh->do($sql);

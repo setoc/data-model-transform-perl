@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+
+<html>
+<head>
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta charset="UTF-8">
+    <title>Table - [% table_name %]</title>
+</head>
+
+<body>
+  <h1>[% table_name %]</h1>
+  <table>
+    <thead>
+        <tr>
+            [% FOREACH col IN columns %]
+                <th>[% col %]</th>
+            [% END %]
+        </tr>
+    </thead>
+    <tbody>
+        [% FOREACH row IN rows %]
+            <tr>
+                [% FOREACH col IN columns %]
+                    <td>[% row.$col %]</td>
+                [% END %]
+            </tr>
+        [% END %]
+    </tbody>
+    <tfoot>
+        <tr>
+            [% FOREACH col IN columns %]
+                <th>[% col %]</th>
+            [% END %]
+        </tr>
+    </tfoot>
+  </table>
+</body>
+</html>
