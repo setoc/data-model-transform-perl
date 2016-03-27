@@ -1,5 +1,29 @@
-#!/usr/bin/perl
+#    Model.pm - Data modeling, data history, and data transformation library
+#    Copyright (C) 2016  Sean O'Connell
+#
+#    This program is free software: you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation, either version 3 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 package Model;
+=head1 NAME
+
+Model - Data modeling, data history, and data transformation library
+
+=head1 VERSION
+
+Version 0.01
+
+=cut
 $Model::VERSION = '0.1';
 use 5.010;
 use strict;
@@ -12,10 +36,49 @@ use DBI;
 use DBIx::Lite;
 use UUID::Tiny ':std';
 
+=head1 SYNOPSIS
+
+Create and update a database schema and its records while preserving data history and then transform that data to other databases with different schemas or other formats.
+
+    use Model;
+
+    my $mdl = Model->new({'schema_file'=>"$root_dir/cfg/model_schema.xml",data_directory=>"$root_dir/data"});
+    mdl->create_database({db_type=>'user',user=>1,overwrite=>1});
+    $mdl->attach_userdb({user=>1});
+    
+    my $cs = $mdl->create_changeset({description=>'create test',user=>1});
+    my $rid = create_uuid_as_string(UUID_RANDOM);
+    $mdl->insert({user=>1,changeset=>$cs,table=>'Ingredient',data=>{'record_id'=>$rid,'ID'=>"Milk", 'DESCRIPTION'=>"White"}});
+    
+    my $ingredient = $mdl->select({user=>1,table=>'Ingredient',filter=>{id=>'Milk'}});
+    
+    $mdl->delete({user=>1,changeset=>$cs,table=>'Ingredient',data=>{record_id=>$rid}});
+    
+    mdl->create_database({db_type=>'user',user=>1,overwrite=>1});
+    $mdl->apply_changeset({user=>1,changeset=>1});
+    
+    $mdl->create_dataset({user=>1,description=>"my first version of ingredients"});
+    
+    mdl->create_database({db_type=>'user',user=>1,overwrite=>1});
+    $mdl->load_dataset({user=>1,dataset=>1});
+
+=cut
+
 my $logger = get_logger("Model");
 my %_state; # for parsing xml
 my %_schema; # for storing parsed xml
 my $_dbix;
+
+=head1 SUBROUTINES/METHODS
+
+=head2 new
+
+Parameter hash should include:
+
+  schema_file=>'schema file name'
+  data_directory=>'directory where databases are created'
+
+=cut
 
 sub new {
     my $class = shift;
@@ -82,6 +145,12 @@ sub load_schema {
     return %_schema;
 }
 
+=head2 get_column_names
+
+Pass in the table name to retrieve the column names as specified in the schema file.
+
+=cut
+
 sub get_column_names {
     my $self = shift;
     unless (ref $self) {
@@ -95,6 +164,12 @@ sub get_column_names {
     }
     return \@columns;
 }
+
+=head2 get_table_names
+
+Retrieve the table names as specified in the schema file.
+
+=cut
 
 sub get_table_names {
     my $self = shift;
@@ -133,6 +208,17 @@ sub get_associations {
         }
     }
 }
+
+=head2 create_database
+
+Create a new database with the data schema from the schema file for the specified user. 
+Parameter hash should include:
+
+  user=>user-identifier
+  db_type=>'main|user'
+  overwrite=>0|1
+
+=cut
 
 sub create_database {
     my $self = shift;
@@ -263,6 +349,15 @@ sub init_dbix {
     return $_dbix;
 }
 
+=head2 attach_userdb
+
+Attach the previously created database for the specified user to the main database. 
+Parameter hash should include:
+
+  user=>user-identifier
+
+=cut
+
 sub attach_userdb {
     my $self = shift;
     unless (ref $self) {
@@ -314,6 +409,15 @@ sub attach_userdb {
     return $sch;
 }
 
+=head2 detach_userdb
+
+Detach the previously attached database for the specified user from the main database. 
+Parameter hash should include:
+
+  user=>user-identifier
+
+=cut
+
 sub detach_userdb {
     my $self = shift;
     unless (ref $self) {
@@ -341,6 +445,16 @@ sub detach_userdb {
     delete $self->{attached_dbs}->{$full_path};
 }
 
+=head2 create_changeset
+
+Create a changeset to start tracking the changes made to the database. 
+Parameter hash should include:
+
+  user=>user-identifier
+  description=>'description for this changeset'
+
+=cut
+
 sub create_changeset {
     my $self = shift;
     unless (ref $self) {
@@ -360,6 +474,12 @@ sub create_changeset {
     $_dbix->table('changeset_user')->insert({changeset_id=>$id,user_id=>$user});
     return $id;
 }
+
+=head2 get_changeset_list
+
+Retrieve a list of changesets. Each item is a hash {id,description,owner}.
+
+=cut
 
 sub get_changeset_list {
     my $self = shift;
@@ -400,6 +520,18 @@ sub _get_max {
     return $max;
 }
 
+=head2 insert
+
+Create a new row with the specified values. The record_id field is required and must be a UUID - it can be any version of UUID. If not using namespaces to create UUID, then version 4 is recommended. 
+Parameter hash should include:
+
+  user=>user-identifier
+  changeset=>changeset-identifier
+  table=>'table-name'
+  data=>{record_id=>'UUID',field-name=>field-value,...}
+
+=cut
+
 sub insert {
     my $self = shift;
     unless (ref $self) {
@@ -438,6 +570,17 @@ sub insert {
         ++$change_id;
     }
 }
+
+=head2 select
+
+If no filter is provided, return a list of all records.  If filter is a record_id, return that record.
+Parameter hash should include:
+
+  user=>user-identifier
+  table=>'table-name'
+  filter=>{record_id=>'UUID',field-name=>field-value,...}
+
+=cut
 
 sub select {
     my $self = shift;
@@ -489,6 +632,18 @@ sub select {
         return \@results;
     }
 }
+
+=head2 update
+
+Update the specified record_id with the specified new information.  Don't need to include all fields for an update. Only the data that actually changed is updated.
+Parameter hash should include:
+
+  user=>user-identifier
+  table=>'table-name'
+  changeset=>changeset-identifier
+  data=>{record_id=>'UUID',field-name=>field-value,...}
+
+=cut
 
 sub update {
     my $self = shift;
@@ -542,6 +697,18 @@ sub update {
         $old_data->update({version_id=>$vid});
     }
 }
+
+=head2 delete
+
+Delete the specified record and all child records in a one to many relationship. Also scrub all references to any of the deleted records.
+Parameter hash should include:
+
+  user=>user-identifier
+  table=>'table-name'
+  changeset=>changeset-identifier
+  data=>{record_id=>'UUID'}
+
+=cut
 
 sub delete {
     my $self = shift;
@@ -631,6 +798,16 @@ sub _delete_recurse {
     return $change_id;
 }
 
+=head2 apply_changeset
+
+Load all the changes included in the specified changeset into the user's database.
+Parameter hash should include:
+
+  user=>user-identifier
+  changeset=>changeset-identifier
+
+=cut
+
 sub apply_changeset {
     my $self = shift;
     unless (ref $self) {
@@ -699,6 +876,12 @@ sub _commit_record {
     }
 }
 
+=head2 txn
+
+Start a transaction for the specified code-ref. This speeds up database operations immensely if performing multiple operations.
+
+=cut
+
 sub txn {
     my $self = shift;
     unless (ref $self) {
@@ -708,6 +891,16 @@ sub txn {
     my $coderef = shift;
     $_dbix->txn($coderef);
 }
+
+=head2 create_dataset
+
+Create a snapshot of the user's database.
+Parameter hash should include:
+
+  user=>user-identifier
+  description=>'why is this snapshot note-worthy'
+
+=cut
 
 sub create_dataset {
     # insert dataset_info record
@@ -744,6 +937,16 @@ sub create_dataset {
     return $ds_id;
 }
 
+=head2 load_dataset
+
+Load the data from the specified dataset into the user's database.
+Parameter hash should include:
+
+  user=>user-identifier
+  dataset=>dataset-identifier
+
+=cut
+
 sub load_dataset {
     # select version_id from dataset where dataset_id='x' and table_name='x'
     # insert into user.table_name (select * from table_name where version_id = version_id)
@@ -768,6 +971,15 @@ sub load_dataset {
         }
     }
 }
+
+=head2 reset_database
+
+Clear all the data from the specified user's database. 
+Parameter hash should include:
+
+  user=>user-identifier
+
+=cut
 
 sub reset_database {
     my $self = shift;
@@ -826,5 +1038,72 @@ sub _handle_end {
         $_state{'current_column'} = undef;
     }
 }
+
+=head1 AUTHOR
+
+Sean O'Connell, C<< <oconnellseant at gmail.com> >>
+
+=head1 BUGS
+
+Please report any bugs or feature requests to C<bug-foo-bar at rt.cpan.org>, or through
+the web interface at L<http://rt.cpan.org/NoAuth/ReportBug.html?Queue=Foo-Bar>.  I will be notified, and then you'll
+automatically be notified of progress on your bug as I make changes.
+
+
+
+
+=head1 SUPPORT
+
+You can find documentation for this module with the perldoc command.
+
+    perldoc Model
+
+
+You can also look for information at:
+
+=over 4
+
+=item * RT: CPAN's request tracker (report bugs here)
+
+L<http://rt.cpan.org/NoAuth/Bugs.html?Dist=Foo-Bar>
+
+=item * AnnoCPAN: Annotated CPAN documentation
+
+L<http://annocpan.org/dist/Foo-Bar>
+
+=item * CPAN Ratings
+
+L<http://cpanratings.perl.org/d/Foo-Bar>
+
+=item * Search CPAN
+
+L<http://search.cpan.org/dist/Foo-Bar/>
+
+=back
+
+
+=head1 ACKNOWLEDGEMENTS
+
+
+=head1 LICENSE AND COPYRIGHT
+
+    Model.pm - Data modeling, data history, and data transformation library
+    Copyright (C) 2016  Sean O'Connell
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+
+=cut
 
 1;
