@@ -39,7 +39,8 @@ sub _init {
     if(defined $self->{schema_file}){
         $self->{schema} = $self->load_schema();
         $self->get_associations();
-        $self->{db_file} = $self->create_database('main',undef,0);
+        my $data_dir = (defined $self->{data_directory})? $self->{data_directory}:".";
+        $self->{db_file} = $self->create_database({db_type=>'main',overwrite=>0,directory=>$data_dir});
         $self->init_dbix();
     }
     $self->{attached_dbs} = {};
@@ -95,6 +96,19 @@ sub get_column_names {
     return \@columns;
 }
 
+sub get_table_names {
+    my $self = shift;
+    unless (ref $self) {
+        $logger->error("should call with an object, not a class");
+        return undef;
+    }
+    my @tables;
+    foreach my $t (keys %{$_schema{tables}}){
+        push @tables,$t;
+    }
+    return \@tables;
+}
+
 sub get_associations {
     my $self = shift;
     unless (ref $self) {
@@ -126,11 +140,19 @@ sub create_database {
         $logger->error("should call with an object, not a class");
         return undef;
     }
-    my $dbtype = shift; # user(data only) or main(meta and data)
-    my $user = shift;
-    my $overwrite = shift; # boolean
+    my $params = shift;
+    my %params = %{$params};
+    my $user = $params{user};
+    my $dbtype = $params{db_type}; # user(data only) or main(meta and data)
+    my $overwrite = $params{overwrite}; # boolean
+    my $directory = $params{directory}; # where the database is stored
     if(not defined $_schema{'name'}){
         $logger->error("no schema loaded. call get_schema first");
+        return undef;
+    }
+    $directory = (defined $directory)? $directory : (defined $self->{data_directory})? $self->{data_directory} : ".";
+    if (not -d $directory){
+        $logger->error("directory doesn't exist. create it first: $directory");
         return undef;
     }
     #create a file called schema_name - error if exists
@@ -146,18 +168,19 @@ sub create_database {
         $logger->error("must specify dbtype and if dbtype==user then must specify user");
         return undef;
     }
-    if(-f $file_name and not $overwrite){
-        $logger->warn("database file already exists. not overwriting it: $file_name");
-        return $file_name;
+    my $full_path = "$directory/$file_name";
+    if(-f $full_path and not $overwrite){
+        $logger->warn("database file already exists. not overwriting it: $full_path");
+        return $full_path;
     }
     my $FH;
-    unless(open($FH,'>', $file_name)){
-        $logger->error("couldn't create database file: $file_name $!");
+    unless(open($FH,'>', $full_path)){
+        $logger->error("couldn't create database file: $full_path $!");
         return undef;
     }
     close($FH);
     my $driver = "SQLite";
-    my $dsn = "DBI:$driver:dbname=$file_name";
+    my $dsn = "DBI:$driver:dbname=$full_path";
     my $userid = "";
     my $password = "";
     my $dbh;
@@ -165,7 +188,7 @@ sub create_database {
         $logger->error($DBI::errstr);
         return undef;
     }
-    $logger->info("connected to database $file_name");
+    $logger->info("connected to database $full_path");
     foreach my $table_name (keys %{$_schema{'tables'}}){
         if($_schema{'tables'}{$table_name}{'type'} eq 'meta' and lc $dbtype eq 'user'){
             next;
@@ -197,7 +220,7 @@ sub create_database {
         }
     }
     $dbh->disconnect();
-    return $file_name;
+    return $full_path;
 }
 
 sub init_dbix {
@@ -246,23 +269,27 @@ sub attach_userdb {
         $logger->error("should call with an object, not a class");
         return undef;
     }
-    my $user = shift;
+    my $params = shift;
+    my %params = %{$params};
+    my $user = $params{user};
     my $file_name = "";
     if(defined $user){
         $file_name = $_schema{'name'} . "_" . $user . ".sqlite3";
     }else{
         $logger->error("must specify a valid user id");
     }
-    if(not -f $file_name){
-        $logger->error("$file_name doesn't exist. create_database first.");
+    my $directory = (defined $self->{data_directory})? $self->{data_directory} : ".";
+    my $full_path = "$directory/$file_name";
+    if(not -f $full_path){
+        $logger->error("$full_path doesn't exist. create_database first.");
         return undef;
     }
-    if(defined $self->{attached_dbs}->{$file_name}){
-        $logger->warn("$file_name is already attached");
+    if(defined $self->{attached_dbs}->{$full_path}){
+        $logger->warn("$full_path is already attached");
         return;
     }
     my $sch = "u$user";
-    my $sql = "ATTACH DATABASE '$file_name' AS $sch";
+    my $sql = "ATTACH DATABASE '$full_path' AS $sch";
     my $sth = $_dbix->dbh->prepare($sql);
     my $rc = $sth->execute();
     foreach my $table_name (keys %{$_schema{'tables'}}){
@@ -283,7 +310,7 @@ sub attach_userdb {
             }
         }
     }
-    $self->{attached_dbs}->{$file_name} = $sch;
+    $self->{attached_dbs}->{$full_path} = $sch;
     return $sch;
 }
 
@@ -293,21 +320,25 @@ sub detach_userdb {
         $logger->error("should call with an object, not a class");
         return undef;
     }
-    my $user = shift;
+    my $params = shift;
+    my %params = %{$params};
+    my $user = $params{user};
     my $file_name = "";
     if(defined $user){
         $file_name = $_schema{'name'} . "_" . $user . ".sqlite3";
     }else{
         $logger->error("must specify a valid user id");
     }
-    if(not defined $self->{attached_dbs}->{$file_name}){
-        $logger->warn("$file_name is not attached");
+    my $directory = (defined $self->{data_directory})? $self->{data_directory} : ".";
+    my $full_path = "$directory/$file_name";
+    if(not defined $self->{attached_dbs}->{$full_path}){
+        $logger->warn("$full_path is not attached");
         return;
     }
     my $sql = "DETACH DATABASE u$user";
     my $sth = $_dbix->dbh->prepare($sql);
     my $rc = $sth->execute();
-    delete $self->{attached_dbs}->{$file_name};
+    delete $self->{attached_dbs}->{$full_path};
 }
 
 sub create_changeset {
@@ -316,8 +347,10 @@ sub create_changeset {
         $logger->error("should call with an object, not a class");
         return undef;
     }
-    my $description = shift;
-    my $user = shift;
+    my $params = shift;
+    my %params = %{$params};
+    my $user = $params{user};
+    my $description = $params{description};
     # find max changeset id
     my $max = $self->_get_max("changeset","id");
     # insert new record
@@ -373,10 +406,12 @@ sub insert {
         $logger->error("should call with an object, not a class");
         return undef;
     }
-    my $user = shift;
-    my $changeset = shift;
-    my $table = shift;
-    my $data = shift;
+    my $params = shift;
+    my %params = %{$params};
+    my $user = $params{user};
+    my $changeset = $params{changeset};
+    my $table = $params{table};
+    my $data = $params{data};
     if(not defined $user){
         $logger->error("user must be specified");
         return undef;
@@ -443,6 +478,14 @@ sub select {
         foreach my $item (@items){
             push @results,$item->hashref;
         }
+        # if a column is a foreign key then include that table's ID for this record
+        foreach my $c (@{$columns}){
+            if(defined $_schema{tables}{$table}{columns}{$c}{foreign_key}){
+                foreach my $i (@results){
+                    
+                }
+            }
+        }
         return \@results;
     }
 }
@@ -453,10 +496,12 @@ sub update {
         $logger->error("should call with an object, not a class");
         return undef;
     }
-    my $user = shift;
-    my $changeset = shift;
-    my $table = shift;
-    my $data = shift;
+    my $params = shift;
+    my %params = %{$params};
+    my $user = $params{user};
+    my $changeset = $params{changeset};
+    my $table = $params{table};
+    my $data = $params{data};
     if(not defined $user){
         $logger->error("user must be specified");
         return undef;
@@ -504,10 +549,12 @@ sub delete {
         $logger->error("should call with an object, not a class");
         return undef;
     }
-    my $user = shift;
-    my $changeset = shift;
-    my $table = shift;
-    my $data = shift;
+    my $params = shift;
+    my %params = %{$params};
+    my $user = $params{user};
+    my $changeset = $params{changeset};
+    my $table = $params{table};
+    my $data = $params{data};
     if(not defined $user){
         $logger->error("user must be specified");
         return undef;
@@ -520,7 +567,6 @@ sub delete {
         $logger->error("table must be specified");
         return undef;
     }
-    #$self->attach_userdb($user);
     my $user_table = "u$user.$table";
     my $tx_id = $self->_get_max('change','transaction_id', {id_changeset=>$changeset}) + 1;
     my $change_id = $self->_get_max('change','id',{id_changeset=>$changeset}) + 1;
@@ -591,9 +637,10 @@ sub apply_changeset {
         $logger->error("should call with an object, not a class");
         return undef;
     }
-    my $user = shift;
-    my $changeset = shift;
-    #my $sch = $self->attach_userdb($user);
+    my $params = shift;
+    my %params = %{$params};
+    my $user = $params{user};
+    my $changeset = $params{changeset};
     my $sch = "u$user";
     my @changes = $_dbix
         ->table('change')
@@ -673,8 +720,10 @@ sub create_dataset {
         $logger->error("should call with an object, not a class");
         return undef;
     }
-    my $user = shift;
-    my $description = shift;
+    my $params = shift;
+    my %params = %{$params};
+    my $user = $params{user};
+    my $description = $params{description};
     my $now = localtime;
     my $ds_id = $self->_get_max("dataset_info","dataset_id") + 1;
     $_dbix->table('dataset_info')->insert({dataset_id=>$ds_id,description=>$description,date_created=>$now,created_by=>$user});
@@ -692,6 +741,7 @@ sub create_dataset {
     }
     $sql = "insert into dataset_changeset (dataset_id,changeset_id) select '$ds_id',changeset_id from changeset_user where user_id='$user'";
     my $rc = $_dbix->dbh->do($sql);
+    return $ds_id;
 }
 
 sub load_dataset {
@@ -702,8 +752,10 @@ sub load_dataset {
         $logger->error("should call with an object, not a class");
         return undef;
     }
-    my $user = shift;
-    my $ds_id = shift;
+    my $params = shift;
+    my %params = %{$params};
+    my $user = $params{user};
+    my $ds_id = $params{dataset};
     my $sch = "u$user";
     my $sql = "";
     foreach my $table_name (keys %{$_schema{tables}}){
@@ -723,7 +775,9 @@ sub reset_database {
         $logger->error("should call with an object, not a class");
         return undef;
     }
-    my $user = shift;
+    my $params = shift;
+    my %params = %{$params};
+    my $user = $params{user};
     my $sch = "u$user";
     my $sql = "";
     foreach my $table_name (keys %{$_schema{tables}}){

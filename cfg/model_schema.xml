@@ -75,7 +75,7 @@ the transformation code understands how to generate data in each type of databas
   <table name="POINT" type="data"><!-- main --><!-- user -->
     <column name="version_id" data_type="uniqueidentifier" foreign_key="true" foreign_table="audit" foreign_column="version_id" relationship="one_to_one" />
     <column name="record_id" data_type="uniqueidentifier"/>
-    <column name="ID" data_type="uniqueidentifier" foreign_key="true" foreign_table="PNTNAM" foreign_column="record_id" relationship="one_to_one"/>
+    <column name="Point_Name" data_type="uniqueidentifier" foreign_key="true" foreign_table="PNTNAM" foreign_column="record_id" relationship="one_to_one"/>
     <column name="Device" data_type="uniqueidentifier" foreign_key="true" foreign_table="DEVICE" foreign_column="record_id" relationship="one_to_many"/>
   </table>
   <table name="PNTNAM" type="data">
