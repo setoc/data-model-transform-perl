@@ -1,4 +1,4 @@
-#    Model.pm - Data modeling, data history, and data transformation library
+#    Database::Model - Data modeling, data history, and data transformation library
 #    Copyright (C) 2016  Sean O'Connell
 #
 #    This program is free software: you can redistribute it and/or modify
@@ -14,22 +14,23 @@
 #    You should have received a copy of the GNU General Public License
 #    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-package Model;
+package Database::Model;
+
 =head1 NAME
 
-Model - Data modeling, data history, and data transformation library
+Database::Model - Data modeling, data history, and data transformation library
 
 =head1 VERSION
 
 Version 0.01
 
 =cut
-$Model::VERSION = '0.1';
+
+our $VERSION = '0.01';
 use 5.010;
 use strict;
 use warnings;
 use Log::Log4perl qw(get_logger :levels);
-#use parent qw(PARENTNAME);
 use XML::Parser;
 use Data::Dumper;
 use DBI;
@@ -40,9 +41,9 @@ use UUID::Tiny ':std';
 
 Create and update a database schema and its records while preserving data history and then transform that data to other databases with different schemas or other formats.
 
-    use Model;
+    use Database::Model;
 
-    my $mdl = Model->new({'schema_file'=>"$root_dir/cfg/model_schema.xml",data_directory=>"$root_dir/data"});
+    my $mdl = Database::Model->new({'schema_file'=>"$root_dir/cfg/model_schema.xml",data_directory=>"$root_dir/data"});
     mdl->create_database({db_type=>'user',user=>1,overwrite=>1});
     $mdl->attach_userdb({user=>1});
     
@@ -1056,7 +1057,7 @@ automatically be notified of progress on your bug as I make changes.
 
 You can find documentation for this module with the perldoc command.
 
-    perldoc Model
+    perldoc Database::Model
 
 
 You can also look for information at:

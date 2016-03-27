@@ -7,7 +7,7 @@ use FindBin qw($Bin);
 use lib "$Bin/../lib";
 my $root_dir = "$Bin/..";
 use Log::Log4perl qw(get_logger :levels);
-use Model;
+use Database::Model;
 # UUID::Tiny may be slower than Data::UUID generating random UUIDs
 #use Data::UUID;
 use UUID::Tiny ':std';
@@ -20,7 +20,7 @@ $logger->error("No drink defined");
 $logger->debug("stuff: ",sub{"debug output from sub"});
 
 my $params = {'schema_file'=>"$root_dir/cfg/model_schema.xml",data_directory=>"$root_dir/data"};
-my $mdl = Model->new($params);
+my $mdl = Database::Model->new($params);
 
 my $db_user_file = $mdl->create_database({db_type=>'user',user=>1,overwrite=>1});
 #$dbix = $mdl->attach_userdb(1);
