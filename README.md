@@ -47,6 +47,7 @@ To install this module, run the following commands:
 -- Module-ScanDeps
 -- File-Remove
 -- YAML-Tiny
+- FindBin-libs
 
 ## SUPPORT AND DOCUMENTATION
 

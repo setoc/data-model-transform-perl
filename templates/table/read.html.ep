@@ -1,0 +1,26 @@
+% layout 'default';
+% title 'Welcome';
+<h2><%= $table %></h2>
+Read Table. 
+<%= link_to 'click here' => url_for %> to reload the page or
+<%= link_to 'here' => '/index.html' %> to move forward to a static page. To
+learn more, you can also browse through the documentation
+<%= link_to 'here' => '/perldoc' %>.
+<p><%= $c->tx->remote_address %></p>
+<%# dumper {foo=>$self->stash} %><br/>
+<table>
+    <tr>
+        % for my $col (@$column_names) {
+            <th><%= $col %></th>
+        % }
+        <th>counter</th>
+    </tr>
+    % for my $item (@$mydata){ 
+        <tr>
+            % for my $col (@$column_names) {
+                <td><%= $item->{$col} %></td>
+            % }
+            <td><%= ++$counter %></td>
+        </tr>
+    % }
+</table>

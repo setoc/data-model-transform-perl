@@ -36,6 +36,8 @@ use Data::Dumper;
 use DBI;
 use DBIx::Lite;
 use UUID::Tiny ':std';
+use FindBin::libs;
+use Database::Model::Schema;
 
 =head1 SYNOPSIS
 
@@ -65,9 +67,7 @@ Create and update a database schema and its records while preserving data histor
 
 =cut
 
-my $logger = get_logger("Model");
-my %_state; # for parsing xml
-my %_schema; # for storing parsed xml
+my $logger = get_logger("Database::Model");
 my $_dbix;
 
 =head1 SUBROUTINES/METHODS
@@ -82,16 +82,17 @@ Parameter hash should include:
 =cut
 
 sub new {
+    say "new";
     my $class = shift;
     my $self = {};
     bless $self, $class;
     $self->_init(@_);
     return $self;
 }
-# schema_file
+
 sub _init {
+    say "_init";
     my $self = shift;
-    $self->{name} = "";
     foreach my $param (@_){
         if (ref $param eq 'HASH'){
             my %p = %{$param};
@@ -101,8 +102,7 @@ sub _init {
         }
     }
     if(defined $self->{schema_file}){
-        $self->{schema} = $self->load_schema();
-        $self->get_associations();
+        $self->{schema} = Database::Model::Schema->new({schema_file=>$self->{schema_file}});
         my $data_dir = (defined $self->{data_directory})? $self->{data_directory}:".";
         $self->{db_file} = $self->create_database({db_type=>'main',overwrite=>0,directory=>$data_dir});
         $self->init_dbix();
@@ -110,105 +110,6 @@ sub _init {
     $self->{attached_dbs} = {};
 }
 
-sub name {
-    my $self = shift;
-    unless (ref $self){
-        $logger->error("should call with an object, not a class");
-        return undef;
-    }
-    my $data = shift;
-    $self->{name} = $data if (defined $data);
-    return $self->{name};
-}
-
-sub load_schema {
-    my $self = shift;
-    unless (ref $self) {
-        $logger->error("should call with an object, not a class");
-        return undef;
-    }
-    my $data = shift;
-    my $p = XML::Parser->new(Handlers => {
-        Start => \&_handle_start,
-        End => \&_handle_end,
-    });
-    $_state{"state"} = undef;
-    if(not defined $data){
-        if(defined $self->{schema_file}){
-            $p->parsefile($self->{schema_file});
-        }else{
-            $logger->error("no schema file defined and no xml provided");
-            return undef;
-        }
-    }else{
-        $p->parse($data);
-    }
-    return %_schema;
-}
-
-=head2 get_column_names
-
-Pass in the table name to retrieve the column names as specified in the schema file.
-
-=cut
-
-sub get_column_names {
-    my $self = shift;
-    unless (ref $self) {
-        $logger->error("should call with an object, not a class");
-        return undef;
-    }
-    my $table_name = shift;
-    my @columns;
-    foreach my $c (keys %{$_schema{tables}{$table_name}{columns}}){
-        push @columns,$c;
-    }
-    return \@columns;
-}
-
-=head2 get_table_names
-
-Retrieve the table names as specified in the schema file.
-
-=cut
-
-sub get_table_names {
-    my $self = shift;
-    unless (ref $self) {
-        $logger->error("should call with an object, not a class");
-        return undef;
-    }
-    my @tables;
-    foreach my $t (keys %{$_schema{tables}}){
-        push @tables,$t;
-    }
-    return \@tables;
-}
-
-sub get_associations {
-    my $self = shift;
-    unless (ref $self) {
-        $logger->error("should call with an object, not a class");
-        return undef;
-    }
-    my $data = shift;
-    # loop through tables building hash of foreign-table = ['table.column.relationship',...]
-    # this data-structure allows finding all the columns that reference another table's column
-    foreach my $table (keys %{$_schema{tables}}){
-        foreach my $column (keys %{$_schema{tables}{$table}{columns}}){
-            next if $column eq 'version_id';
-            if (defined $_schema{tables}{$table}{columns}{$column}{foreign_key}){
-                my $ft = $_schema{tables}{$table}{columns}{$column}{foreign_table};
-                my $relationship = $_schema{tables}{$table}{columns}{$column}{relationship};
-                my %item;
-                $item{table} = $table;
-                $item{column} = $column;
-                $item{relationship} = $relationship;
-                push @{$self->{associations}->{$ft}},\%item;
-            }
-        }
-    }
-}
 
 =head2 create_database
 
@@ -222,6 +123,7 @@ Parameter hash should include:
 =cut
 
 sub create_database {
+    say "create_database";
     my $self = shift;
     unless (ref $self) {
         $logger->error("should call with an object, not a class");
@@ -233,8 +135,9 @@ sub create_database {
     my $dbtype = $params{db_type}; # user(data only) or main(meta and data)
     my $overwrite = $params{overwrite}; # boolean
     my $directory = $params{directory}; # where the database is stored
-    if(not defined $_schema{'name'}){
-        $logger->error("no schema loaded. call get_schema first");
+    my $schema_name = $self->{schema}->name(); 
+    if(not defined $schema_name){
+        $logger->error("no schema loaded. call new with schema_file specified");
         return undef;
     }
     $directory = (defined $directory)? $directory : (defined $self->{data_directory})? $self->{data_directory} : ".";
@@ -248,9 +151,9 @@ sub create_database {
     #  build sql string for create table
     my $file_name = "";
     if(defined $dbtype and lc $dbtype eq 'main'){
-        $file_name = $_schema{'name'} . "_main.sqlite3";
+        $file_name = $schema_name . "_main.sqlite3";
     }elsif(defined $dbtype and lc $dbtype eq 'user' and defined $user){
-        $file_name = $_schema{'name'} . "_" . $user . ".sqlite3";
+        $file_name = $schema_name . "_$user.sqlite3";
     }else{
         $logger->error("must specify dbtype and if dbtype==user then must specify user");
         return undef;
@@ -276,24 +179,24 @@ sub create_database {
         return undef;
     }
     $logger->info("connected to database $full_path");
-    foreach my $table_name (keys %{$_schema{'tables'}}){
-        if($_schema{'tables'}{$table_name}{'type'} eq 'meta' and lc $dbtype eq 'user'){
+    foreach my $table_name (@{$self->{schema}->get_table_names}){
+        if($self->{schema}->table_type($table_name) eq 'meta' and lc $dbtype eq 'user'){
             next;
         }
         my $sql = "CREATE TABLE $table_name (";
-        foreach my $column_name (keys %{$_schema{'tables'}{$table_name}{'columns'}}){
+        foreach my $column_name (@{$self->{schema}->get_column_names($table_name)}){
+            my $data_type = $self->{schema}->column_data_type($table_name,$column_name);
+            my $data_size = $self->{schema}->column_data_size($table_name,$column_name);
+            my $primary_key = $self->{schema}->column_primary_key($table_name,$column_name);
+            my $unique = $self->{schema}->column_unique($table_name,$column_name);
+            my $not_null = $self->{schema}->column_not_null($table_name,$column_name);
             $sql .= $column_name;
-            $sql .= " " . $_schema{'tables'}{$table_name}{'columns'}{$column_name}{'data_type'}
-                if defined $_schema{'tables'}{$table_name}{'columns'}{$column_name}{'data_type'};
-            $sql .= "(" . $_schema{'tables'}{$table_name}{'columns'}{$column_name}{'data_size'} . ")"
-                if defined $_schema{'tables'}{$table_name}{'columns'}{$column_name}{'data_size'};
-            $sql .= " PRIMARY KEY"
-                if defined $_schema{'tables'}{$table_name}{'columns'}{$column_name}{'primary_key'}
-                    and (lc $dbtype ne 'main' or  $_schema{'tables'}{$table_name}{'type'} eq 'meta');
-            $sql .= " UNIQUE"
-                if defined $_schema{'tables'}{$table_name}{'columns'}{$column_name}{'unique'};
-            $sql .= " NOT NULL"
-                if defined $_schema{'tables'}{$table_name}{'columns'}{$column_name}{'not_null'};
+            $sql .= " " . $data_type if defined $data_type;
+            $sql .= "(" . $data_size . ")" if defined $data_size;
+            $sql .= " PRIMARY KEY" if defined $primary_key
+                    and (lc $dbtype ne 'main' or  $self->{schema}->table_type($table_name) eq 'meta');
+            $sql .= " UNIQUE" if defined $unique;
+            $sql .= " NOT NULL" if defined $not_null;
             $sql .= ",";
         }
         chop $sql;
@@ -311,12 +214,13 @@ sub create_database {
 }
 
 sub init_dbix {
+    say "init_dbix";
     my $self = shift;
     unless (ref $self) {
         $logger->error("should call with an object, not a class");
         return undef;
     }
-    if(not defined $_schema{'name'}){
+    if(not defined $self->{schema}->name()){
         $logger->error("no schema loaded. call get_schema first");
         return undef;
     }
@@ -330,16 +234,19 @@ sub init_dbix {
     
     #$_dbix->schema->table('SUBSTN')->pk('MRID');
     #$_dbix->schema->one_to_many('SUBSTN.MRID'=>'DEVTYP.SUBSTN_MRID','substn');
-    foreach my $table_name (keys %{$_schema{'tables'}}){
-        foreach my $column_name (keys %{$_schema{'tables'}{$table_name}{'columns'}}){
+    foreach my $table_name (@{$self->{schema}->get_table_names}){
+        foreach my $column_name (@{$self->{schema}->get_column_names($table_name)}){
             # create primary key mapping
-            $_dbix->schema->table($table_name)->pk($column_name)
-                if defined $_schema{'tables'}{$table_name}{'columns'}{$column_name}{'primary_key'};
-            if (defined $_schema{'tables'}{$table_name}{'columns'}{$column_name}{'foreign_key'}){
-                if (defined $_schema{'tables'}{$table_name}{'columns'}{$column_name}{'foreign_table'}){
-                    if (defined $_schema{'tables'}{$table_name}{'columns'}{$column_name}{'foreign_column'}){
-                        my $parent_table = $_schema{'tables'}{$table_name}{'columns'}{$column_name}{'foreign_table'};
-                        my $parent_column = $_schema{'tables'}{$table_name}{'columns'}{$column_name}{'foreign_column'};
+            my $primary_key = $self->{schema}->column_primary_key($table_name,$column_name);
+            $_dbix->schema->table($table_name)->pk($column_name) if defined $primary_key;
+            my $foreign_key = $self->{schema}->column_foreign_key($table_name,$column_name);
+            if (defined $foreign_key){
+                my $foreign_table = $self->{schema}->column_foreign_table($table_name,$column_name);
+                if (defined $foreign_table){
+                    my $foreign_column = $self->{schema}->column_foreign_column($table_name,$column_name);
+                    if (defined $foreign_column){
+                        my $parent_table = $foreign_table;
+                        my $parent_column = $foreign_column;
                         # setup object mapping between related tables - parent->children[] and child->parent
                         $_dbix->schema->one_to_many($parent_table . "." . $parent_column => $table_name . "." . $column_name, $table_name);
                     }
@@ -370,7 +277,7 @@ sub attach_userdb {
     my $user = $params{user};
     my $file_name = "";
     if(defined $user){
-        $file_name = $_schema{'name'} . "_" . $user . ".sqlite3";
+        $file_name = $self->{schema}->name() . "_$user.sqlite3";
     }else{
         $logger->error("must specify a valid user id");
     }
@@ -388,17 +295,21 @@ sub attach_userdb {
     my $sql = "ATTACH DATABASE '$full_path' AS $sch";
     my $sth = $_dbix->dbh->prepare($sql);
     my $rc = $sth->execute();
-    foreach my $table_name (keys %{$_schema{'tables'}}){
-        next if($_schema{'tables'}{$table_name}{'type'} eq 'meta' );
-        foreach my $column_name (keys %{$_schema{'tables'}{$table_name}{'columns'}}){
+    $logger->debug("attach_database rc=$rc");
+    foreach my $table_name (@{$self->{schema}->get_table_names}){
+        next if($self->{schema}->table_type($table_name) eq 'meta' );
+        foreach my $column_name (@{$self->{schema}->get_column_names($table_name)}){
             # create primary key mapping
-            $_dbix->schema->table("$sch.$table_name")->pk($column_name)
-                if defined $_schema{'tables'}{$table_name}{'columns'}{$column_name}{'primary_key'};
-            if (defined $_schema{'tables'}{$table_name}{'columns'}{$column_name}{'foreign_key'}){
-                if (defined $_schema{'tables'}{$table_name}{'columns'}{$column_name}{'foreign_table'}){
-                    if (defined $_schema{'tables'}{$table_name}{'columns'}{$column_name}{'foreign_column'}){
-                        my $parent_table = $_schema{'tables'}{$table_name}{'columns'}{$column_name}{'foreign_table'};
-                        my $parent_column = $_schema{'tables'}{$table_name}{'columns'}{$column_name}{'foreign_column'};
+            my $primary_key = $self->{schema}->column_primary_key($table_name,$column_name);
+            $_dbix->schema->table("$sch.$table_name")->pk($column_name) if defined $primary_key;
+            my $foreign_key = $self->{schema}->column_foreign_key($table_name,$column_name);
+            if (defined $foreign_key){
+                my $foreign_table = $self->{schema}->column_foreign_table($table_name,$column_name);
+                if (defined $foreign_table){
+                    my $foreign_column = $self->{schema}->column_foreign_column($table_name,$column_name);
+                    if (defined $foreign_column){
+                        my $parent_table = $foreign_table;
+                        my $parent_column = $foreign_column;
                         # setup object mapping between related tables - parent->children[] and child->parent
                         $_dbix->schema->one_to_many("$sch.$parent_table" . "." . $parent_column => "$sch.$table_name" . "." . $column_name, "$sch.$table_name");
                     }
@@ -430,7 +341,7 @@ sub detach_userdb {
     my $user = $params{user};
     my $file_name = "";
     if(defined $user){
-        $file_name = $_schema{'name'} . "_" . $user . ".sqlite3";
+        $file_name = $self->{schema}->name() . "_$user.sqlite3";
     }else{
         $logger->error("must specify a valid user id");
     }
@@ -592,22 +503,21 @@ sub select {
     my $params = shift;
     my %params = %{$params};
     my $user = $params{user};
-    my $table = $params{table};
+    my $table_name = $params{table};
     my $filter_hash = $params{filter};
     my $columns = $params{columns};
     if(not defined $user){
         $logger->error("user must be specified");
         return undef;
     }
-    if(not defined $table){
+    if(not defined $table_name){
         $logger->error("table must be specified");
         return undef;
     }
     if(not defined $columns){
-        $columns = $self->get_column_names($table);
+        $columns = $self->{schema}->get_column_names($table_name);
     }
-    my $user_table = "u$user.$table";
-    
+    my $user_table = "u$user.$table_name";
     if(defined $filter_hash){
         my $item;
         $item = $_dbix->table($user_table)->select(@{$columns})->find($filter_hash);
@@ -623,8 +533,9 @@ sub select {
             push @results,$item->hashref;
         }
         # if a column is a foreign key then include that table's ID for this record
-        foreach my $c (@{$columns}){
-            if(defined $_schema{tables}{$table}{columns}{$c}{foreign_key}){
+        foreach my $column_name (@{$columns}){
+            my $foreign_key = $self->{schema}->column_foreign_key($table_name,$column_name);
+            if(defined $foreign_key){
                 foreach my $i (@results){
                     
                 }
@@ -761,8 +672,8 @@ sub _delete_recurse {
         $logger->error("couldn't find record_id in database: ". $data->{record_id});
         return undef;
     }
-    if(defined $self->{associations}->{$table}){
-        foreach my $item (@{$self->{associations}->{$table}}){
+    if(defined $self->{schema}->{associations}->{$table}){
+        foreach my $item (@{$self->{schema}->{associations}->{$table}}){
             my $rtab = "$sch." . $item->{table};
             my $rcol = $item->{column};
             if($item->{relationship} eq 'one_to_many'){
@@ -923,9 +834,9 @@ sub create_dataset {
     $_dbix->table('dataset_info')->insert({dataset_id=>$ds_id,description=>$description,date_created=>$now,created_by=>$user});
     my $sch = "u$user";
     my $sql = "";
-    foreach my $table_name (keys %{$_schema{tables}}){
-        if($_schema{tables}{$table_name}{type} eq 'data'){
-            my $cols = $self->get_column_names($table_name);
+    foreach my $table_name (@{$self->{schema}->get_table_names}){
+        if($self->{schema}->table_type($table_name) eq 'data'){
+            my $cols = $self->{schema}->get_column_names($table_name);
             my $cols_str = join ',',@{$cols};
             $sql = "insert into $table_name ($cols_str) select $cols_str from $sch.$table_name where version_id not in (select version_id from $table_name)";
             my $rc = $_dbix->dbh->do($sql);
@@ -962,9 +873,9 @@ sub load_dataset {
     my $ds_id = $params{dataset};
     my $sch = "u$user";
     my $sql = "";
-    foreach my $table_name (keys %{$_schema{tables}}){
-        if($_schema{tables}{$table_name}{type} eq 'data'){
-            my $cols = $self->get_column_names($table_name);
+    foreach my $table_name (@{$self->{schema}->get_table_names}){
+        if($self->{schema}->table_type($table_name) eq 'data'){
+            my $cols = $self->{schema}->get_column_names($table_name);
             my $cols_str = join ',',@{$cols};
             $sql = "insert into $sch.$table_name ($cols_str) select $cols_str from $table_name where version_id in (select version_id from dataset where dataset_id=$ds_id and table_name like '$table_name')";
             my $rc = $_dbix->dbh->do($sql);
@@ -993,52 +904,14 @@ sub reset_database {
     my $user = $params{user};
     my $sch = "u$user";
     my $sql = "";
-    foreach my $table_name (keys %{$_schema{tables}}){
-        if($_schema{tables}{$table_name}{type} eq 'data'){
+    foreach my $table_name (@{$self->{schema}->get_table_names}){
+        if($self->{schema}->table_type($table_name) eq 'data'){
             $sql = "delete from $sch.$table_name";
             my $rc = $_dbix->dbh->do($sql);
         }
     }
 }
 
-# not sure if using a global %_schema and %_state here where cause problems in the future
-sub _handle_start {
-    my ($expat,$el,%atts) = @_;
-    if($el eq 'schema' and not defined $_state{'state'}){
-        $_state{"state"} = "inside_schema";
-        $_schema{'tables'}={};
-        foreach my $key (keys %atts){
-            $_schema{lc $key} = $atts{$key};
-        }
-    }elsif($el eq 'table' and $_state{"state"} eq "inside_schema"){
-        $_state{'state'} = "inside_table";
-        $_schema{'tables'}{$atts{'name'}}{'columns'}={};
-        $_state{'current_table'} = $atts{'name'};
-        foreach my $key (keys %atts){
-            $_schema{'tables'}{$atts{'name'}}{lc $key} = $atts{$key};
-        }
-    }elsif($el eq 'column' and $_state{"state"} eq "inside_table"){
-        $_state{'state'} = "inside_column";
-        $_schema{'tables'}{$_state{'current_table'}}{'columns'}{$atts{'name'}}={};
-        $_state{'current_column'} = $atts{'name'};
-        foreach my $key (keys %atts){
-            $_schema{'tables'}{$_state{'current_table'}}{'columns'}{$atts{'name'}}{lc $key} = $atts{$key};
-        }
-    }
-}
-
-sub _handle_end {
-    my ($expat,$el) = @_;
-    if($el eq 'schema'){
-        $_state{'state'} = undef;
-    }elsif($el eq 'table'){
-        $_state{'state'} = "inside_schema";
-        $_state{'current_table'} = undef;
-    }elsif($el eq 'column'){
-        $_state{'state'} = "inside_table";
-        $_state{'current_column'} = undef;
-    }
-}
 
 =head1 AUTHOR
 

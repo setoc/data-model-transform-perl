@@ -1,0 +1,14 @@
+% layout 'default';
+% title 'Welcome';
+<h2>Hello, World!</h2>
+<p>
+<%= link_to 'click here' => url_for %> to reload the page or
+<%= link_to 'here' => '/index.html' %> to move forward to a static page. To
+learn more, you can also browse through the documentation
+<%= link_to 'here' => '/perldoc' %>.
+</p>
+<ul>
+    <li><%= link_to 'tables' => '/table' %></li>
+    <li><%= link_to 'hierachy' => '/hierarchy' %></li>
+    <li><%= link_to 'search' => '/search' %></li>
+</ul>
