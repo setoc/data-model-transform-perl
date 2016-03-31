@@ -132,7 +132,6 @@ Retrieve the table names as specified in the schema file.
 =cut
 
 sub get_table_names {
-    say "get_table_names";
     my $self = shift;
     unless (ref $self) {
         $logger->error("should call with an object, not a class");
@@ -297,6 +296,30 @@ sub column_relationship {
     return $self->{schema}{tables}{$table_name}{columns}{$column_name}{relationship};
 }
 
+sub get_foreign_identifiers {
+    my $self = shift;
+    unless (ref $self) {
+        $logger->error("should call with an object, not a class");
+        return undef;
+    }
+    my $unsafe_table_name = shift;
+    my $table_name = $self->{safe_tables}{lc $unsafe_table_name}{name};
+    my $unsafe_column_names = shift;
+    my @results;
+    foreach my $unsafe_column_name (@{$unsafe_column_names}){
+        my $column_name = $self->{safe_tables}{lc $unsafe_table_name}{columns}{lc $unsafe_column_name};
+        next if $column_name eq 'version_id';
+        next if $column_name eq 'record_id';
+        if(defined $self->{schema}{tables}{$table_name}{columns}{$column_name}{foreign_key}){
+            my $foreign_table = $self->{schema}{tables}{$table_name}{columns}{$column_name}{foreign_table};
+            my $foreign_id = $self->{identifiers}{$foreign_table};
+            # this is a problem if there is more than one column that references the same table
+            push @results,{'foreign_table'=>$foreign_table,'local_column'=>$column_name,'foreign_id'=>$foreign_id};
+        }
+    }
+    return \@results;
+}
+
 sub _build_graph {
     my $self = shift;
     unless (ref $self) {
@@ -307,6 +330,9 @@ sub _build_graph {
         $self->{safe_tables}{lc $table}{name} = $table;
         foreach my $column (keys %{$self->{schema}{tables}{$table}{columns}}){
             $self->{safe_tables}{lc $table}{columns}{lc $column} = $column;
+            if(defined $self->{schema}{tables}{$table}{columns}{$column}{identifier}){
+                $self->{identifiers}{$table}=$column;
+            }
         }
     }
 }

@@ -82,7 +82,6 @@ Parameter hash should include:
 =cut
 
 sub new {
-    say "new";
     my $class = shift;
     my $self = {};
     bless $self, $class;
@@ -91,7 +90,6 @@ sub new {
 }
 
 sub _init {
-    say "_init";
     my $self = shift;
     foreach my $param (@_){
         if (ref $param eq 'HASH'){
@@ -123,7 +121,6 @@ Parameter hash should include:
 =cut
 
 sub create_database {
-    say "create_database";
     my $self = shift;
     unless (ref $self) {
         $logger->error("should call with an object, not a class");
@@ -214,7 +211,6 @@ sub create_database {
 }
 
 sub init_dbix {
-    say "init_dbix";
     my $self = shift;
     unless (ref $self) {
         $logger->error("should call with an object, not a class");
@@ -517,6 +513,16 @@ sub select {
     if(not defined $columns){
         $columns = $self->{schema}->get_column_names($table_name);
     }
+    # foreign key columns should display textual identifier instead of record_id
+    # array of hash {$local_column=>{table=>$foreign_table,identifier=>$foreign_identifier},...}
+    # OR part of the returned data [record_id,foreign_table.record_id,foreign_table.identifier]
+    # select p.record_id,p.Device,p.Point_name,p.SITE,p.SITE2,S.ID,T.ID,N.ID
+    # from point as p
+    #   left join SITE as s on p.SITE=s.record_id
+    #   left join SITE as t on p.SITE2=t.record_id
+    #   left join PNTNAM as N on p.Point_name=N.record_id
+
+    my $identifiers = $self->{schema}->get_foreign_identifiers($table_name,$columns);    
     my $user_table = "u$user.$table_name";
     if(defined $filter_hash){
         my $item;
@@ -527,19 +533,31 @@ sub select {
         }
         return \%result;
     }else{
-        my @items = $_dbix->table($user_table)->select(@{$columns})->all;
+        my $counter = 1;
+        my @foreign_columns;
+        my @select_columns;
+        foreach my $c (@{$columns}){push @select_columns,"t0.$c";}
+        my $from_tables = " from $table_name as t0 ";
+        foreach my $identifier (@{$identifiers}){
+            my $foreign_table = $identifier->{foreign_table};
+            my $local_column = $identifier->{local_column};
+            my $foreign_id = $identifier->{foreign_id};
+            $from_tables .= " left join u$user.$foreign_table as t$counter on t0.$local_column=t$counter.record_id ";
+            push @foreign_columns, "$foreign_table.$foreign_id";
+            push @select_columns,"t$counter.$foreign_id";
+            ++$counter;
+        };
+        push @{$columns},@foreign_columns;
+        my $sql = "select " . (join ',',@select_columns) . $from_tables;
+        say $sql;
+        my $sth = $_dbix->dbh->prepare($sql);
+        my $rc = $sth->execute();
+        
         my @results;
-        foreach my $item (@items){
-            push @results,$item->hashref;
-        }
-        # if a column is a foreign key then include that table's ID for this record
-        foreach my $column_name (@{$columns}){
-            my $foreign_key = $self->{schema}->column_foreign_key($table_name,$column_name);
-            if(defined $foreign_key){
-                foreach my $i (@results){
-                    
-                }
-            }
+        while (my @items = $sth->fetchrow_array()) {
+            my %hash;
+            @hash{@{$columns}} = @items;
+            push @results, \%hash;
         }
         return \@results;
     }

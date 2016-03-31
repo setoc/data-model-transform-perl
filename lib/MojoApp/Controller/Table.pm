@@ -15,9 +15,10 @@ sub read {
     my $table = $self->stash('table');
     $mdl->attach_userdb({user=>1});
     my $results = $mdl->select({user=>1,table=>$table});
-    my $column_names = $mdl->{schema}->get_column_names($table);
+    my @column_names = keys %{$results->[0]};
+    #my $column_names = $mdl->{schema}->get_column_names($table);
     $self->stash('mydata'=>$results);
-    $self->stash('column_names'=>$column_names);
+    $self->stash('column_names'=>\@column_names);
     $self->stash('counter'=>0);
     $self->render;
 }

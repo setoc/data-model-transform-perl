@@ -55,7 +55,7 @@ the transformation code understands how to generate data in each type of databas
       <transform db_type='HABITAT' db_name='SCADAMOM' table_name='SUBSTN' column_name='MRID_SUBSTN'/>
       <transform db_type='HABITAT' db_name='NETMOM' table_name='ST' column_name='MRID_ST'/>
     </column>
-    <column name="ID" data_type="varchar" data_size="8">
+    <column name="ID" data_type="varchar" data_size="8" identifier="true">
       <transform db_type='HABITAT' db_name='SCADAMOM' table_name='SUBSTN' column_name='ID_SUBSTN'/>
       <transform db_type='HABITAT' db_name='NETMOM' table_name='ST' column_name='ID_ST'/>
     </column>
@@ -63,25 +63,25 @@ the transformation code understands how to generate data in each type of databas
   <table name="DEVTYP" type="data"><!-- main --><!-- user -->
     <column name="version_id" data_type="uniqueidentifier" foreign_key="true" foreign_table="audit" foreign_column="version_id" relationship="one_to_one" />
     <column name="record_id" data_type="uniqueidentifier"/>
-    <column name="ID" data_type="varchar" data_size="8"/>
+    <column name="ID" data_type="varchar" data_size="8" identifier="true"/>
     <column name="Substation" data_type="uniqueidentifier" foreign_key="true" foreign_table="Substation" foreign_column="record_id" relationship="one_to_many"/>
   </table>
   <table name="DEVICE" type="data"><!-- main --><!-- user -->
     <column name="version_id" data_type="uniqueidentifier" foreign_key="true" foreign_table="audit" foreign_column="version_id" relationship="one_to_one" />
     <column name="record_id" data_type="uniqueidentifier"/>
-    <column name="ID" data_type="varchar" data_size="8"/>
+    <column name="ID" data_type="varchar" data_size="8" identifier="true"/>
     <column name="Devtyp" data_type="uniqueidentifier" foreign_key="true" foreign_table="DEVTYP" foreign_column="record_id" relationship="one_to_many"/>
   </table>
   <table name="POINT" type="data"><!-- main --><!-- user -->
     <column name="version_id" data_type="uniqueidentifier" foreign_key="true" foreign_table="audit" foreign_column="version_id" relationship="one_to_one" />
     <column name="record_id" data_type="uniqueidentifier"/>
-    <column name="Point_Name" data_type="uniqueidentifier" foreign_key="true" foreign_table="PNTNAM" foreign_column="record_id" relationship="one_to_one"/>
+    <column name="Point_Name" data_type="uniqueidentifier" identifier="true" foreign_key="true" foreign_table="PNTNAM" foreign_column="record_id" relationship="one_to_one"/>
     <column name="Device" data_type="uniqueidentifier" foreign_key="true" foreign_table="DEVICE" foreign_column="record_id" relationship="one_to_many"/>
   </table>
   <table name="PNTNAM" type="data">
     <column name="version_id" data_type="uniqueidentifier" foreign_key="true" foreign_table="audit" foreign_column="version_id" relationship="one_to_one" />
     <column name="record_id" data_type="uniqueidentifier" primary_key='true'/>
-    <column name="ID" data_type="varchar" data_size="4"/>
+    <column name="ID" data_type="varchar" data_size="4" identifier="true"/>
     <column name="DESCRIPTION" data_type="varchar" data_size="100"/>
   </table>
   
